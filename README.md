@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TRACE (Trusted Retrieval and Associated Context Engine)
 
-## Getting Started
+**Ask. Retrieve. Verify.**
 
-First, run the development server:
+TRACE is a multimodal AI context reconstruction engine. It transforms scattered information into connected context and reconstructs the relevant answer when you need it, while showing the evidence behind that answer.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+**Phase 1 Limitations: AI processing, Gemini extraction, RAG, and automatic context linking are intentionally NOT implemented in Phase 1.**
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Tech Stack
+- **Frontend**: Next.js (App Router), React, TypeScript
+- **Styling**: Tailwind CSS v4, shadcn/ui
+- **Database & Auth**: Supabase (PostgreSQL, Storage, Auth)
+- **Validation**: Zod
+- **Deployment Target**: Vercel
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Clone the repository and install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy `.env.example` to `.env.local` and add your credentials:
+   ```bash
+   cp .env.example .env.local
+   ```
+   **Required variables:**
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - `GEMINI_API_KEY` *(For Phase 2A Smart Capture)*
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Learn More
+## Phase 2A: Smart Capture
+Phase 2A introduces the first genuine AI capability: **Smart Capture**.
+- Go to `/capture` to upload an image or screenshot (PNG, JPEG, WEBP up to 10MB).
+- TRACE uses Gemini 2.5 Flash server-side to extract structured Context, Entities, and Claims.
+- Validated data is atomically saved to Supabase and linked to your account.
+- View your reconstructed context graph on the `/context` page.
+- **Note**: The Gemini API key must remain entirely server-side.
 
-To learn more about Next.js, take a look at the following resources:
+## Environment Variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Your `.env.local` must contain the following keys:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `GEMINI_API_KEY` *(Keep this server-side only)*
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Supabase Setup
 
-## Deploy on Vercel
+### Database Schema
+Run the migration file located at `supabase/migrations/0000_initial_schema.sql` in your Supabase SQL Editor. This will:
+- Create the tables: `memories`, `entities`, `memory_entities`, `claims`, `interactions`.
+- Enable RLS policies enforcing `user_id` isolation.
+- Create the storage bucket `trace-sources`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Storage
+The migration script automatically creates the `trace-sources` bucket (non-public) and sets up RLS policies ensuring users can only read/write files under their own `auth.uid()` path.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Development Commands
+- **Dev**: `npm run dev`
+- **Build**: `npm run build`
+- **Lint**: `npm run lint`
+
+## Deployment Notes
+Deploy to Vercel and ensure the environment variables are configured in the Vercel dashboard. The application is ready to be connected to Supabase and styled as a dark-first premium app.
