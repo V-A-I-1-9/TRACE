@@ -3,6 +3,47 @@ import { CaptureResponse, CaptureResponseSchema } from '../validation/gemini'
 
 const MODEL_NAME = 'gemini-3.7-flash'
 
+async function generateWithRetry(ai: GoogleGenAI, params: Parameters<typeof ai.models.generateContent>[0], maxRetries = 2) {
+  let attempt = 0
+  while (attempt <= maxRetries) {
+    try {
+      return await ai.models.generateContent(params)
+    } catch (err: unknown) {
+      const status = (err as Record<string, unknown>)?.status
+      const message = (err as Error)?.message || ''
+      
+      const isQuotaExhausted = (status === 429 && message.includes('quota')) || message.includes('RESOURCE_EXHAUSTED')
+      const isRateLimited = (status === 429 && !isQuotaExhausted) || message.includes('TOO_MANY_REQUESTS')
+      const isHighDemand = status === 503 || message.includes('503') || message.includes('UNAVAILABLE') || message.includes('high demand')
+      const isAuthError = status === 401 || status === 403 || message.includes('API key') || message.includes('API_KEY_INVALID')
+      
+      if (isAuthError) {
+        throw new Error('API Key invalid or expired. Please check your AI configuration.')
+      }
+      if (isQuotaExhausted) {
+        throw new Error('API quota exhausted for this account. Please use a different API key.')
+      }
+
+      const isTransient = isRateLimited || isHighDemand
+      
+      if (isTransient && attempt < maxRetries) {
+        attempt++
+        const backoffMs = Math.pow(2, attempt) * 500 // 1s, 2s backoff
+        console.warn(`[Gemini Retry] Transient error detected (Attempt ${attempt}/${maxRetries}). Retrying in ${backoffMs}ms...`)
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
+        continue
+      }
+      
+      if (isTransient) {
+        throw new Error(isRateLimited ? 'API rate limit exceeded. Please slow down and try again.' : 'TRACE AI services are currently experiencing high demand. Please try again in a few moments.')
+      }
+      
+      throw new Error(`AI Processing Error: ${message}`)
+    }
+  }
+  throw new Error('Unreachable retry block')
+}
+
 export async function processImageWithGemini(
   imageBuffer: Buffer,
   mimeType: string,
@@ -64,7 +105,7 @@ EXTRACTION RULES:
 11. The current date/time is ${new Date().toISOString()}. Use this to resolve relative dates like "tomorrow", "this friday", or "next week" into absolute ISO 8601 dates.`
 
   const tGenStart = performance.now()
-  const response = await ai.models.generateContent({
+  const response = await generateWithRetry(ai, {
     model: MODEL_NAME,
     contents: [
       {
@@ -212,7 +253,7 @@ EXTRACTION RULES:
 11. The current date/time is ${new Date().toISOString()}. Use this to resolve relative dates like "tomorrow", "this friday", or "next week" into absolute ISO 8601 dates.`
 
   const tGenStart = performance.now()
-  const response = await ai.models.generateContent({
+  const response = await generateWithRetry(ai, {
     model: MODEL_NAME,
     contents: [
       {
@@ -346,7 +387,7 @@ EXTRACTION RULES:
 10. Events MUST originate from captured information. Do not invent dates. Unknown dates remain null. If no events exist, return [].`
 
   const tGenStart = performance.now()
-  const response = await ai.models.generateContent({
+  const response = await generateWithRetry(ai, {
     model: MODEL_NAME,
     contents: [
       {
@@ -482,7 +523,7 @@ USER TEXT:
 ${textContent}`
 
   const tGenStart = performance.now()
-  const response = await ai.models.generateContent({
+  const response = await generateWithRetry(ai, {
     model: MODEL_NAME,
     contents: [
       {

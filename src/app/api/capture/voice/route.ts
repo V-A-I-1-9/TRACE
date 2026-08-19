@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 
         if (uploadError) {
           console.error('Storage upload error:', uploadError)
-          send({ error: 'TRACE AI processing is temporarily unavailable. Please try again.' })
+          send({ error: 'TRACE could not upload the audio. Please try again.' })
           controller.close()
           return
         }
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
         } catch (aiError) {
           console.error('Gemini extraction failed:', aiError)
           await supabase.storage.from('trace-sources').remove([storagePath])
-          send({ error: 'TRACE could not understand this audio. Please try again.' })
+          send({ error: aiError instanceof Error ? aiError.message : 'TRACE AI processing is temporarily unavailable. Please try again.' })
           controller.close()
           return
         }

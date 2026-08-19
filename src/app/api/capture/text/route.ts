@@ -67,7 +67,7 @@ export async function POST(request: Request) {
         } catch (aiError) {
           console.error('Gemini extraction failed:', aiError)
           await supabase.storage.from('trace-sources').remove([storagePath])
-          send({ error: 'TRACE AI processing is temporarily unavailable. Please try again.' })
+          send({ error: aiError instanceof Error ? aiError.message : 'TRACE AI processing is temporarily unavailable. Please try again.' })
           controller.close()
           return
         }
