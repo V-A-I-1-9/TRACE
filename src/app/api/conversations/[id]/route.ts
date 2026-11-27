@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -12,7 +12,6 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Next.js 15 params API compatibility
   const resolvedParams = await params
   const conversationId = resolvedParams.id
 
@@ -29,12 +28,34 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
   }
 
+  // Saved answers are historical. Only offer originals that still belong to a live memory.
+  const paths = new Set<string>()
+  for (const row of data) {
+    for (const entry of row.structured_response?.evidence ?? []) {
+      if (typeof entry.source_path === 'string') paths.add(entry.source_path)
+    }
+  }
+  const unique = [...paths]
+  const existing = new Set<string>()
+  for (let offset=0;offset<unique.length;offset+=40) {
+    const sources = await supabase.from('memories').select('source_path').eq('user_id',user.id).in('source_path',unique.slice(offset,offset+40))
+    if (sources.error) return NextResponse.json({error:'Could not load conversation sources.'},{status:503})
+    for (const source of sources.data) existing.add(source.source_path)
+  }
+  for (const row of data) {
+    for (const entry of row.structured_response?.evidence ?? []) {
+      if (entry.source_path && !existing.has(entry.source_path)) {
+        entry.source_deleted = true
+        entry.source_path = null
+      }
+    }
+  }
   return NextResponse.json(data)
 }
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -46,16 +67,18 @@ export async function DELETE(
   const resolvedParams = await params
   const conversationId = resolvedParams.id
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('conversations')
     .delete()
     .eq('id', conversationId)
     .eq('user_id', user.id)
+    .select('id').maybeSingle()
 
   if (error) {
     console.error('Error deleting conversation:', error)
     return NextResponse.json({ error: 'Failed to delete conversation' }, { status: 500 })
   }
 
+  if (!data) return NextResponse.json({error:'Conversation unavailable.'},{status:404})
   return NextResponse.json({ success: true })
 }

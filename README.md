@@ -1,68 +1,23 @@
-# TRACE (Trusted Retrieval and Associated Context Engine)
+# TRACE
+Trusted Retrieval and Associated Context Engine is a personal memory workspace. Capture an image, document, recording or typed note, ask a question, and open the original from the answer. The graph connects memories through shared people, places and organizations.
 
-**Ask. Retrieve. Verify.**
+## Run locally
+Use Node 22.18+ and the lockfile. Install with `npm ci`, copy `.env.example` to `.env.local`, then set the Supabase URL, publishable key, and server-side Gemini key. Start with `npm run dev`. The connected Project TRACE database already has the application schema. For a separate Supabase project, apply the files under `supabase/migrations` in order, starting with an empty database and enabling pgvector in the extensions schema. The source bucket is private.
 
-TRACE is a multimodal AI context reconstruction engine. It transforms scattered information into connected context and reconstructs the relevant answer when you need it, while showing the evidence behind that answer.
+## Retrieval and API usage
+- Capture first checks a per-account content hash. An identical file or note reuses its saved memory.
+- Local English OCR and labelled-field extraction handle clear coupon images and simple tickets. Searchable PDFs use a local text reader before generation. Other images, scanned PDFs and recordings use Gemini. If generation is unavailable, readable text and OCR can still be saved. A recording without a transcript or an unreadable image requires a later retry.
+- The database saves memories, entity links, claims, events and reminders together. Full-text retrieval works as soon as capture succeeds. A single-merchant coupon-code question can be answered directly from observed claims.
+- The default Gemini model is `gemini-3.1-flash-lite`. Set `GEMINI_MODEL` to another structured-output model available to your account to compare Gemini models. Generation has a time limit and never automatically retries a quota error.
+- `TRACE_SEMANTIC_SEARCH=auto` adds a background embedding for AI-extracted sources and tries vector search after a full-text miss. Set it to `off` to avoid embedding calls, or `on` to index locally extracted sources too. Previously stored memories remain searchable by text.
+- Typed notes and text documents support 16,000 characters. Image and document uploads support 10 MB and audio supports 20 MB when running locally. A hosting platform may impose a smaller request limit.
 
-**Phase 1 Limitations: AI processing, Gemini extraction, RAG, and automatic context linking are intentionally NOT implemented in Phase 1.**
+## Demo rehearsal
+The two PNGs under `demo/` are fictional rehearsal sources. The sample reward has the case-sensitive code `Pace-7x42`. The sample bus ticket goes from Mysore to Ooty on 15 December 2026.
 
-## Tech Stack
-- **Frontend**: Next.js (App Router), React, TypeScript
-- **Styling**: Tailwind CSS v4, shadcn/ui
-- **Database & Auth**: Supabase (PostgreSQL, Storage, Auth)
-- **Validation**: Zod
-- **Deployment Target**: Vercel
+1. Capture a reward screenshot with a legible merchant and code. Ask whether you have a coupon for that merchant, then open **View original** to compare the characters.
+2. Capture a dated trip ticket. Start a fresh chat and ask what to pack. Check the ticket citation and the separate recommendations.
+3. Ask about an unrelated merchant. Upload the first screenshot again and check that the memory count stays the same.
+4. Open **Graph**, select a memory and inspect the destination or merchant. **All connections** shows the full graph.
 
-## Local Setup
-
-1. Clone the repository and install dependencies:
-   ```bash
-   npm install
-   ```
-2. Copy `.env.example` to `.env.local` and add your credentials:
-   ```bash
-   cp .env.example .env.local
-   ```
-   **Required variables:**
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - `GEMINI_API_KEY` *(For Phase 2A Smart Capture)*
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## Phase 2A: Smart Capture
-Phase 2A introduces the first genuine AI capability: **Smart Capture**.
-- Go to `/capture` to upload an image or screenshot (PNG, JPEG, WEBP up to 10MB).
-- TRACE uses Gemini 2.5 Flash server-side to extract structured Context, Entities, and Claims.
-- Validated data is atomically saved to Supabase and linked to your account.
-- View your reconstructed context graph on the `/context` page.
-- **Note**: The Gemini API key must remain entirely server-side.
-
-## Environment Variables
-
-Your `.env.local` must contain the following keys:
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `GEMINI_API_KEY` *(Keep this server-side only)*
-
-## Supabase Setup
-
-### Database Schema
-Run the migration file located at `supabase/migrations/0000_initial_schema.sql` in your Supabase SQL Editor. This will:
-- Create the tables: `memories`, `entities`, `memory_entities`, `claims`, `interactions`.
-- Enable RLS policies enforcing `user_id` isolation.
-- Create the storage bucket `trace-sources`.
-
-### Storage
-The migration script automatically creates the `trace-sources` bucket (non-public) and sets up RLS policies ensuring users can only read/write files under their own `auth.uid()` path.
-
-## Development Commands
-- **Dev**: `npm run dev`
-- **Build**: `npm run build`
-- **Lint**: `npm run lint`
-
-## Deployment Notes
-Deploy to Vercel and ensure the environment variables are configured in the Vercel dashboard. The application is ready to be connected to Supabase and styled as a dark-first premium app.
+Run `npm test`, `npm run lint` and `npm run build` before presenting. The production app starts with `npm start`.

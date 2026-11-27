@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable prefer-const */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client'
@@ -55,8 +54,8 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
         label: m.title,
         type: 'memory',
         group: m.category || 'default',
-        x: Math.random() * 800,
-        y: Math.random() * 600,
+        x: 400 + Math.cos(i * 2.4) * Math.min(320, 45 * Math.sqrt(i + 1)),
+        y: 300 + Math.sin(i * 2.4) * Math.min(230, 35 * Math.sqrt(i + 1)),
         vx: 0, vy: 0,
         radius: 20
       })
@@ -68,8 +67,8 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
         label: e.name,
         type: 'entity',
         group: e.type,
-        x: Math.random() * 800,
-        y: Math.random() * 600,
+        x: 400 + Math.cos((i + memories.length) * 2.4) * 280,
+        y: 300 + Math.sin((i + memories.length) * 2.4) * 210,
         vx: 0, vy: 0,
         radius: 12
       })
@@ -91,9 +90,12 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
 
   // Simple Force-Directed Simulation
   useEffect(() => {
-    if (nodes.length === 0) return
+    if (nodes.length === 0 || draggedNode) return
 
-    let currentNodes = [...nodes]
+    const currentNodes = [...nodes]
+    const byId = new Map(currentNodes.map(n=>[n.id,n]))
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    let frames = 0
     
     const tick = () => {
       const alpha = 0.1 // cooling factor
@@ -126,8 +128,8 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
 
       // Attraction (Links)
       links.forEach(link => {
-        const source = currentNodes.find(n => n.id === link.source)
-        const target = currentNodes.find(n => n.id === link.target)
+        const source = byId.get(link.source)
+        const target = byId.get(link.target)
         if (source && target) {
           const dx = target.x - source.x
           const dy = target.y - source.y
@@ -155,10 +157,16 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
         }
       })
 
+      if (reduceMotion) return
       setNodes([...currentNodes])
-      animationRef.current = requestAnimationFrame(tick)
+      if (++frames < 160) animationRef.current = requestAnimationFrame(tick)
     }
 
+    if (reduceMotion) {
+      for (let i=0; i<65; i++) tick()
+      setNodes([...currentNodes])
+      return
+    }
     animationRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animationRef.current)
   }, [nodes.length, links.length, draggedNode]) // Only re-run when nodes count changes or drag starts
@@ -175,7 +183,7 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
       pt.y = e.clientY
       const svgP = pt.matrixTransform(svgRef.current.getScreenCTM()?.inverse())
       
-      setNodes(prev => prev.map(n => n.id === draggedNode ? { ...n, x: svgP.x, y: svgP.y } : n))
+      setNodes(prev => prev.map(n => n.id === draggedNode ? { ...n, x: (svgP.x-400)/scale+400, y: (svgP.y-300)/scale+300 } : n))
     }
   }
 
@@ -185,20 +193,22 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
 
   return (
     <div className="relative w-full h-full bg-muted/5 border border-border rounded-xl overflow-hidden flex flex-col">
-      <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <Button variant="outline" size="icon" onClick={() => setScale(s => s * 1.2)}><ZoomIn className="w-4 h-4" /></Button>
-        <Button variant="outline" size="icon" onClick={() => setScale(s => s / 1.2)}><ZoomOut className="w-4 h-4" /></Button>
+      <div className="graph-legend"><span>Memory</span><span>Entity</span></div>
+      <div className="absolute top-2 right-2 z-10 flex gap-1">
+        <Button variant="outline" size="icon" aria-label="Zoom in" disabled={scale >= 3} onClick={() => setScale(s => Math.min(3,s * 1.2))}><ZoomIn className="w-4 h-4" /></Button>
+        <Button variant="outline" size="icon" aria-label="Zoom out" disabled={scale <= .4} onClick={() => setScale(s => Math.max(0.4,s / 1.2))}><ZoomOut className="w-4 h-4" /></Button>
       </div>
 
       <svg 
         ref={svgRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="w-full h-full touch-none cursor-grab active:cursor-grabbing"
         viewBox="0 0 800 600"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
-        <g transform={`scale(${scale}) translate(${(1 - scale) * 400}, ${(1 - scale) * 300})`}>
+        <title>Connections between saved memories and entities</title>
+        <g transform={`translate(400 300) scale(${scale}) translate(-400 -300)`}>
           {/* Links */}
           {links.map((link, i) => {
             const source = nodes.find(n => n.id === link.source)
@@ -224,12 +234,13 @@ export function GraphVisualizer({ memories, entities, memoryEntities }: { memori
               onPointerDown={(e) => handlePointerDown(node.id, e)}
               className="cursor-pointer"
             >
+              <title>{node.label}</title>
               <circle 
                 r={node.radius} 
                 fill={node.type === 'memory' ? 'var(--primary)' : 'var(--muted)'}
                 className={node.type === 'memory' ? 'text-primary' : 'text-muted border border-border'}
                 strokeWidth={2}
-                stroke={node.type === 'memory' ? 'hsl(var(--background))' : 'hsl(var(--foreground))'}
+                stroke={node.type === 'memory' ? 'var(--background)' : 'var(--foreground)'}
               />
               {node.type === 'memory' && (
                 <Database className="w-4 h-4 text-primary-foreground absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none" x={0} y={0} />

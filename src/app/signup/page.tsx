@@ -2,13 +2,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import {useRouter} from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { BrainCircuit, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { Fingerprint, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/browser'
 
 export default function SignupPage() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
@@ -41,14 +43,19 @@ export default function SignupPage() {
       return
     }
     
+    if (data.session) {
+      router.replace('/capture')
+      router.refresh()
+      return
+    }
     setStatus('success')
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
-      <div className="w-full max-w-sm space-y-6">
+    <div className="auth-page">
+      <div className="auth-card space-y-6">
         <div className="flex flex-col items-center space-y-2 text-center">
-          <BrainCircuit className="w-10 h-10 text-primary mb-2" />
+          <Fingerprint className="auth-mark" />
           <h1 className="text-3xl font-bold tracking-tight">Create an account</h1>
           <p className="text-sm text-muted-foreground">
             Enter your email below to create your TRACE account
@@ -80,7 +87,7 @@ export default function SignupPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input 
-                id="email" 
+                autoComplete="email" id="email"
                 type="email" 
                 placeholder="m@example.com" 
                 value={email}
@@ -92,7 +99,7 @@ export default function SignupPage() {
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input 
-                id="password" 
+                autoComplete="new-password" id="password"
                 type="password" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

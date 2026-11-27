@@ -1,18 +1,9 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import '@fontsource/instrument-serif/latin-400.css'
+import '@fontsource-variable/dm-sans/wght.css'
 import './globals.css'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { MobileNav } from '@/components/layout/MobileNav'
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
 
 export const metadata: Metadata = {
   title: 'TRACE | Ask. Retrieve. Verify.',
@@ -25,12 +16,13 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable}`}>
-      <body className="flex h-screen bg-background text-foreground overflow-hidden font-sans antialiased">
+    <html lang="en">
+      <body className="flex h-dvh bg-background text-foreground overflow-hidden font-sans antialiased">
+        <a href="#main-content" className="skip-link">Skip to content</a>
         <AppSidebar />
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-col flex-1 overflow-hidden">
           <MobileNav />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
+          <main id="main-content" tabIndex={-1} className="workspace-main">
             {children}
           </main>
         </div>

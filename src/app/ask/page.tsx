@@ -3,18 +3,22 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Search, Loader2, AlertCircle, FileText, CheckCircle2, Lightbulb, Sparkles, Plus, MessageSquare, Trash2, Send, CheckSquare, Image as ImageIcon, Mic, ExternalLink } from 'lucide-react'
+import { Search, Loader2, AlertCircle, FileText, CheckCircle2, Lightbulb, Fingerprint, Plus, MessageSquare, Send, CheckSquare, Image as ImageIcon, Mic } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { ThinkingAnimation } from '@/components/domain/ThinkingAnimation'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { createClient } from '@/lib/supabase/browser'
+import { DeleteAction } from '@/components/domain/DeleteAction'
+import { SourcePreview } from '@/components/domain/SourcePreview'
+import {responseLines} from '@/lib/stream'
+import { useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 import { cn } from '@/lib/utils'
 type AskState = 'idle' | 'searching' | 'success' | 'error'
 
 interface Evidence {
   title: string
   category: string
+  source_deleted?: boolean
   source_type?: string
   source_path?: string
   event_date: string | null
@@ -40,6 +44,13 @@ interface Conversation {
 }
 
 export default function AskPage() {
+  return <Suspense><Chat /></Suspense>
+}
+
+function Chat() {
+  const params = useSearchParams()
+  const [focused, setFocused] = useState(params.get('memory'))
+  const loadVersion = useRef(0)
   const [query, setQuery] = useState('')
   const [state, setState] = useState<AskState>('idle')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -47,12 +58,8 @@ export default function AskPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
   
-  const [selectedSource, setSelectedSource] = useState<{ path: string, type: string } | null>(null)
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null)
-  const [isSourceLoading, setIsSourceLoading] = useState(false)
-
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
+
 
   const fetchConversations = async () => {
     try {
@@ -69,38 +76,21 @@ export default function AskPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchConversations()
+    try {
+      const draft = sessionStorage.getItem('trace-question-draft')
+      if (draft) setQuery(draft)
+      sessionStorage.removeItem('trace-question-draft')
+    } catch { /* Tab storage may be unavailable. */ }
   }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  useEffect(() => {
-    async function loadSourceUrl() {
-      if (!selectedSource?.path) return
-      setIsSourceLoading(true)
-      setSourceUrl(null)
-
-      const { data, error } = await supabase.storage.from('trace-sources').createSignedUrl(selectedSource.path, 3600)
-      
-      if (!error && data?.signedUrl) {
-        // PDFs: open directly in a new tab, don't load into dialog
-        if (selectedSource.type === 'DOCUMENT' || selectedSource.type === 'PDF') {
-          window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
-          setSelectedSource(null)
-          setIsSourceLoading(false)
-          return
-        }
-        setSourceUrl(data.signedUrl)
-      } else {
-        setSourceUrl(null)
-      }
-      setIsSourceLoading(false)
-    }
-    loadSourceUrl()
-  }, [selectedSource, supabase])
-
   const handleSelectConversation = async (id: string) => {
+    if (state === 'searching') return
+    const version = ++loadVersion.current
+    setFocused(null)
     setCurrentConversationId(id)
     setMessages([])
     setState('idle')
@@ -109,7 +99,8 @@ export default function AskPage() {
     
     try {
       const res = await fetch(`/api/conversations/${id}`)
-      if (res.ok) {
+      if (!res.ok) throw new Error('Could not load this conversation. Select it again to retry.')
+      {
         const data = await res.json()
         const formattedMessages: ChatMessage[] = data.map((msg: { id: string, role: 'user'|'assistant', content: string, structured_response?: Record<string, unknown> }) => {
           const structured = msg.structured_response || {}
@@ -124,30 +115,35 @@ export default function AskPage() {
             timings: structured.timings,
           }
         })
-        setMessages(formattedMessages)
+        if (version === loadVersion.current) setMessages(formattedMessages)
       }
     } catch (err) {
-      console.error('Failed to load messages', err)
+      if (version===loadVersion.current) {
+        setState('error')
+        setErrorMsg(err instanceof Error ? err.message : 'Could not load this conversation.')
+      }
     }
   }
 
-  const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        setConversations(prev => prev.filter(c => c.id !== id))
-        if (currentConversationId === id) {
-          setCurrentConversationId(null)
-          setMessages([])
-        }
-      }
-    } catch (err) {
-      console.error('Failed to delete conversation', err)
-    }
-  }
+  const deleteChatButton = (conv:Conversation) => state !== 'searching' && (
+    <DeleteAction kind="conversation" title={conv.title} compact
+      onDelete={async()=>{
+        const res=await fetch('/api/conversations/'+conv.id,{method:'DELETE'})
+        if (!res.ok && res.status!==404) throw new Error('Could not delete conversation. Please try again.')
+        return 'Conversation deleted.'
+      }}
+      onSuccess={()=>{
+        setConversations(prev=>prev.filter(item=>item.id!==conv.id))
+        if (currentConversationId===conv.id) startNewChat()
+      }}
+    />
+  )
+  const activeConversation = conversations.find(c=>c.id===currentConversationId)
 
   const startNewChat = () => {
+    if (state === 'searching') return
+    loadVersion.current++
+    setFocused(null)
     setCurrentConversationId(null)
     setMessages([])
     setState('idle')
@@ -159,6 +155,7 @@ export default function AskPage() {
     e?.preventDefault()
     if (!query.trim() || state === 'searching') return
 
+    loadVersion.current++
     const currentQuery = query.trim()
     const userMessage: ChatMessage = { id: Date.now().toString(), role: 'user', content: currentQuery }
     
@@ -194,85 +191,29 @@ export default function AskPage() {
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: currentQuery, conversation_id: convId })
+        body: JSON.stringify({ query: currentQuery, conversation_id: convId, memory_id: focused })
       })
 
-      if (!res.ok) {
-        let errStr = 'Failed to get an answer'
-        try {
-           const errData = await res.json()
-           errStr = errData.error || errStr
-        } catch {}
-        throw new Error(errStr)
-      }
-
-      if (!res.body) throw new Error('Streaming is not supported in this browser.')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      
-      let done = false
-      let buffer = ''
-      
-      while (!done) {
-        const { value, done: readerDone } = await reader.read()
-        done = readerDone
-        if (value) {
-          buffer += decoder.decode(value, { stream: !done })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-          
-          for (const line of lines) {
-            if (!line.trim()) continue
-            try {
-              const data = JSON.parse(line)
-              if (data.type === 'chunk') {
-                currentAssistantMessage = {
-                  ...currentAssistantMessage,
-                  content: currentAssistantMessage.content + data.text
-                }
-                setMessages(prev => {
-                  const newMsgs = [...prev]
-                  newMsgs[newMsgs.length - 1] = currentAssistantMessage
-                  return newMsgs
-                })
-              } else if (data.type === 'complete') {
-                currentAssistantMessage = {
-                  ...currentAssistantMessage,
-                  content: data.data.answer,
-                  evidence: data.data.evidence,
-                  facts: data.data.facts,
-                  inferences: data.data.inferences,
-                  recommendations: data.data.recommendations,
-                  timings: data.data.timings
-                }
-                setMessages(prev => {
-                  const newMsgs = [...prev]
-                  newMsgs[newMsgs.length - 1] = currentAssistantMessage
-                  return newMsgs
-                })
-              } else if (data.type === 'error') {
-                throw new Error(data.error)
-              }
-            } catch (e) {
-               console.error('Error parsing chunk:', e)
-            }
-          }
+      let complete = false
+      for await (const event of responseLines(res)) {
+        if (event.type === 'error') throw new Error(event.error)
+        if (event.type === 'chunk') currentAssistantMessage = {...currentAssistantMessage,content:currentAssistantMessage.content + event.text}
+        if (event.type === 'complete') {
+          complete = true
+          currentAssistantMessage = {...currentAssistantMessage,...event.data,content:event.data.answer}
         }
+        const update = currentAssistantMessage
+        setMessages(prev=>prev.map(m=>m.id===update.id ? update : m))
       }
-
+      if (!complete) throw new Error('The reply was interrupted. Send your question again.')
       setState('success')
     } catch (err) {
       console.error(err)
       setState('error')
       setErrorMsg(err instanceof Error ? err.message : 'TRACE is temporarily unavailable. Your data is safe. Please try again.')
-      setMessages(prev => {
-        const newMsgs = [...prev]
-        if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === 'assistant' && !newMsgs[newMsgs.length - 1].content) {
-          newMsgs.pop()
-        }
-        return newMsgs
-      })
+      setQuery(currentQuery)
+      setMessages(prev => prev.filter(m => m.id !== currentAssistantMessage.id && m.id !== userMessage.id))
+
     }
   }
 
@@ -286,13 +227,13 @@ export default function AskPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] pt-4 pb-20 md:pb-4 gap-6 max-w-[1400px] mx-auto">
+    <div className="workspace-page ask-page">
       
       {/* Sidebar: Conversation History */}
-      <div className="hidden lg:flex w-64 flex-col gap-4 h-full">
+      <div className="conversation-rail">
         <Button onClick={startNewChat} variant="default" className="w-full justify-start gap-2 bg-primary/10 text-primary hover:bg-primary/20">
           <Plus className="w-4 h-4" />
-          New Conversation
+          New conversation
         </Button>
         <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-none">
           {conversations.map(conv => (
@@ -301,21 +242,15 @@ export default function AskPage() {
               className={cn(
                 "group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border",
                 currentConversationId === conv.id 
-                  ? "bg-white/10 border-white/20" 
-                  : "bg-transparent border-transparent hover:bg-white/5"
+                  ? "bg-secondary border-border"
+                  : "bg-transparent border-transparent hover:bg-secondary/60"
               )}
-              onClick={() => handleSelectConversation(conv.id)}
             >
-              <div className="flex items-center gap-2 overflow-hidden">
+              <button className="conversation-select" onClick={() => handleSelectConversation(conv.id)} aria-current={currentConversationId===conv.id ? "true" : undefined} disabled={state==="searching"}>
                 <MessageSquare className="w-4 h-4 shrink-0 opacity-50" />
                 <span className="text-sm truncate text-foreground/80 group-hover:text-foreground">{conv.title}</span>
-              </div>
-              <button 
-                onClick={(e) => handleDeleteConversation(conv.id, e)}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/20 hover:text-destructive rounded transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
               </button>
+              {deleteChatButton(conv)}
             </div>
           ))}
           {conversations.length === 0 && (
@@ -327,17 +262,25 @@ export default function AskPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col h-full max-w-4xl mx-auto w-full relative">
-        <div className="flex-1 overflow-y-auto scrollbar-none px-4">
+      <div className="conversation-pane">
+        <div className="compact-history">
+          <select aria-label="Conversation history" value={currentConversationId || ''} disabled={state==='searching'} onChange={e=>e.target.value ? handleSelectConversation(e.target.value) : startNewChat()} className="min-w-0 flex-1 rounded-lg border bg-card p-2 text-sm">
+            <option value="">New conversation</option>
+            {conversations.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+          <Button variant="outline" size="sm" onClick={startNewChat} disabled={state==='searching'}>New chat</Button>
+          {activeConversation && deleteChatButton(activeConversation)}
+        </div>
+        <div className="conversation-scroll">
           
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center space-y-6 animate-in fade-in zoom-in duration-500">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-primary" />
+            <div className="ask-empty">
+              <div className="ask-emblem">
+                <Fingerprint className="w-8 h-8 text-primary" />
               </div>
               <div className="text-center space-y-2 max-w-md">
-                <h2 className="text-2xl font-semibold tracking-tight">How can I help you today?</h2>
-                <p className="text-muted-foreground">Ask TRACE to retrieve your context, summarize events, or give recommendations based on your memories.</p>
+                <h1>Ask your memories</h1>
+                <p className="text-muted-foreground">Ask about a saved coupon, a travel plan, or a detail you remember.</p>
               </div>
             </div>
           ) : (
@@ -354,9 +297,9 @@ export default function AskPage() {
                       {/* Assistant Bubble */}
                       <div className="flex items-start gap-4">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                          <Sparkles className="w-4 h-4 text-primary" />
+                          <Fingerprint className="w-4 h-4 text-primary" />
                         </div>
-                        <div className="flex-1 space-y-6 text-foreground/90 leading-relaxed text-sm">
+                        <div className="min-w-0 flex-1 space-y-6 text-foreground/90 leading-relaxed text-sm">
                           
                           {/* Answer Content */}
                           {msg.content ? (
@@ -369,7 +312,7 @@ export default function AskPage() {
 
                           {/* Recommendations Section */}
                           {msg.recommendations && msg.recommendations.length > 0 && (
-                            <div className="mt-6 space-y-3 bg-secondary/30 rounded-xl p-5 border border-white/5">
+                            <div className="mt-6 space-y-3 bg-secondary/30 rounded-xl p-5 border border-border">
                               <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2 mb-2">
                                 <Lightbulb className="w-4 h-4 text-amber-500" />
                                 TRACE Recommendations
@@ -379,7 +322,7 @@ export default function AskPage() {
                                   <h5 className="font-medium text-foreground">{rec.category}</h5>
                                   <div className="grid gap-2 pl-1">
                                     {rec.items.map((item, j) => (
-                                      <div key={j} className="flex items-start gap-2 text-sm text-muted-foreground bg-background/50 p-2 rounded-lg border border-white/5">
+                                      <div key={j} className="flex items-start gap-2 text-sm text-muted-foreground bg-background/50 p-2 rounded-lg border border-border">
                                         <CheckSquare className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                                         <span>{item}</span>
                                       </div>
@@ -390,21 +333,23 @@ export default function AskPage() {
                             </div>
                           )}
 
+                          {msg.evidence?.filter(e=>e.source_path).map((e,i)=><div key={i} className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground"><SourcePreview title={e.title} path={e.source_path!} type={e.source_type || 'TEXT'}/>{e.title}</div>)}
+                          {msg.evidence?.filter(e=>e.source_deleted).map((e,i)=><p key={i} className="text-xs text-muted-foreground">{e.title} · Original deleted</p>)}
                           {/* Reasoning & Evidence Accordion */}
                           {(msg.facts?.length || msg.inferences?.length || msg.evidence?.length) ? (
                             <details className="group [&_summary::-webkit-details-marker]:hidden mt-4">
-                              <summary className="flex items-center gap-2 cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors bg-white/5 inline-flex px-3 py-1.5 rounded-full border border-white/5">
+                              <summary className="flex items-center gap-2 cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors bg-white/5 inline-flex px-3 py-1.5 rounded-full border border-border">
                                 <Search className="w-3.5 h-3.5" />
-                                <span>View TRACE Reasoning & Sources</span>
+                                <span>Evidence details</span>
                               </summary>
                               
-                              <div className="mt-4 space-y-6 bg-black/10 dark:bg-white/5 rounded-xl p-6 border border-white/5 animate-in slide-in-from-top-2 duration-200">
+                              <div className="mt-4 space-y-6 bg-secondary/50 rounded-xl p-6 border border-border animate-in slide-in-from-top-2 duration-200">
                                 
                                 {/* Facts & Inferences */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                   {msg.facts && msg.facts.length > 0 && (
                                     <div className="space-y-2">
-                                      <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Verified Facts</h5>
+                                      <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Captured facts</h5>
                                       <ul className="space-y-2">
                                         {msg.facts.map((fact, i) => (
                                           <li key={i} className="text-xs flex gap-2 items-start"><CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" /> <span className="leading-relaxed">{fact}</span></li>
@@ -418,7 +363,7 @@ export default function AskPage() {
                                       <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">AI Inferences</h5>
                                       <ul className="space-y-2">
                                         {msg.inferences.map((inf, i) => (
-                                          <li key={i} className="text-xs flex gap-2 items-start"><Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" /> <span className="leading-relaxed">{inf}</span></li>
+                                          <li key={i} className="text-xs flex gap-2 items-start"><Fingerprint className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" /> <span className="leading-relaxed">{inf}</span></li>
                                         ))}
                                       </ul>
                                     </div>
@@ -427,20 +372,18 @@ export default function AskPage() {
 
                                 {/* Evidence Sources */}
                                 {msg.evidence && msg.evidence.length > 0 && (
-                                  <div className="space-y-3 pt-4 border-t border-white/5">
+                                  <div className="space-y-3 pt-4 border-t border-border">
                                     <h5 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Supporting Memories</h5>
                                     <div className="grid grid-cols-1 gap-3">
                                       {msg.evidence.map((ev, i) => {
                                         const isImage = ev.source_type === 'IMAGE'
-                                        const isPdf = ev.source_type === 'DOCUMENT' || ev.source_type === 'PDF'
                                         const isAudio = ev.source_type === 'VOICE' || ev.source_type === 'AUDIO'
                                         const SourceIcon = isImage ? ImageIcon : isAudio ? Mic : FileText
-                                        const buttonLabel = isImage ? 'View Image' : isPdf ? 'Open PDF' : isAudio ? 'Play Audio' : 'View Source'
 
                                         return (
                                         <div 
                                           key={i} 
-                                          className="bg-background rounded-lg p-4 border border-white/5 space-y-3"
+                                          className="bg-background rounded-lg p-4 border border-border space-y-3"
                                         >
                                           <div className="flex justify-between items-start gap-4">
                                             <div className="flex items-center gap-2">
@@ -449,17 +392,7 @@ export default function AskPage() {
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
                                               <Badge variant="secondary" className="text-[10px] uppercase tracking-wider hidden sm:inline-flex">{ev.category}</Badge>
-                                              {ev.source_path && (
-                                                <Button 
-                                                  variant="outline" 
-                                                  size="sm" 
-                                                  className="h-6 text-[10px] px-2 gap-1 bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
-                                                  onClick={() => setSelectedSource({ path: ev.source_path as string, type: ev.source_type || 'TEXT' })}
-                                                >
-                                                  {isPdf && <ExternalLink className="w-3 h-3" />}
-                                                  {buttonLabel}
-                                                </Button>
-                                              )}
+
                                             </div>
                                           </div>
                                           
@@ -491,28 +424,32 @@ export default function AskPage() {
                 </div>
               ))}
               
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {focused && <div className="px-4 py-2 text-sm text-primary">Searching the selected memory <button className="ml-2 underline" onClick={()=>setFocused(null)}>Search all</button></div>}
               {state === 'error' && (
                 <div className="flex items-center space-x-2 bg-destructive/10 text-destructive px-4 py-3 rounded-lg text-sm border border-destructive/20 w-fit">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span className="font-medium">{errorMsg}</span>
                 </div>
               )}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-
         {/* Input Area */}
-        <div className="p-4 bg-background/80 backdrop-blur-xl border-t border-white/5 z-10 sticky bottom-0">
+        <div className="ask-composer">
           <form onSubmit={handleAsk} className="relative flex items-center max-w-3xl mx-auto">
             <Input 
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              maxLength={1500}
+              aria-label="Question"
               placeholder="Ask anything about your memories..." 
-              className="pr-12 py-6 rounded-2xl bg-secondary/50 border-white/10 text-base shadow-sm focus-visible:ring-1 focus-visible:ring-primary/50"
+              className="pr-12 py-6 rounded-2xl bg-secondary/50 border-border text-base shadow-sm focus-visible:ring-1 focus-visible:ring-primary/50"
               disabled={state === 'searching'}
             />
             <Button 
+              aria-label="Send question"
               type="submit" 
               size="icon"
               disabled={state === 'searching' || !query.trim()} 
@@ -522,45 +459,11 @@ export default function AskPage() {
             </Button>
           </form>
           <div className="text-center mt-2">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">TRACE AI can make mistakes. Verify important information.</p>
+            <p className="text-xs text-muted-foreground">Open a cited source to verify an answer.</p>
           </div>
         </div>
       </div>
 
-      <Dialog open={!!selectedSource} onOpenChange={(open) => {
-        if (!open) {
-          setSelectedSource(null)
-          setSourceUrl(null)
-        }
-      }}>
-        <DialogContent className="sm:max-w-3xl border-white/10 bg-black/95 p-0 overflow-hidden">
-          <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/5">
-            <DialogTitle className="text-sm font-medium">Source Evidence</DialogTitle>
-          </DialogHeader>
-          <div className="w-full min-h-[40vh] max-h-[80vh] flex items-center justify-center p-4 overflow-auto">
-            {isSourceLoading ? (
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                <p className="text-xs text-muted-foreground">Loading secure source...</p>
-              </div>
-            ) : sourceUrl ? (
-              selectedSource?.type === 'IMAGE' ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={sourceUrl} alt="Evidence" className="max-w-full max-h-[75vh] object-contain rounded-lg" />
-              ) : selectedSource?.type === 'VOICE' || selectedSource?.type === 'AUDIO' ? (
-                <div className="p-8 w-full max-w-md space-y-4">
-                  <div className="text-center text-sm text-muted-foreground mb-4">Voice Memo Evidence</div>
-                  <audio src={sourceUrl} controls className="w-full" />
-                </div>
-              ) : (
-                <div className="p-8 text-center text-sm text-muted-foreground">This memory was captured from text input.</div>
-              )
-            ) : (
-              <div className="text-sm text-destructive flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Could not generate secure URL for this source.</div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

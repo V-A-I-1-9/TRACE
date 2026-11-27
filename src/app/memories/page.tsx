@@ -1,8 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
+import { after } from 'next/server'
+import { cleanDeletedSources } from '@/lib/deleted-sources'
 import { redirect } from 'next/navigation'
 import { MemoryExplorer } from '@/components/domain/MemoryExplorer'
 
-export default async function ContextPage() {
+export default async function ContextPage({searchParams}:{searchParams:Promise<{memory?:string; type?:string}>}) {
+  const {memory: selected,type} = await searchParams
   const supabase = await createClient()
   
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -10,9 +13,11 @@ export default async function ContextPage() {
     redirect('/login')
   }
 
+  after(async () => { await cleanDeletedSources(supabase, user.id) })
+
   const { data: memories, error } = await supabase
     .from('memories')
-    .select('*')
+    .select('id,title,summary,category,source_type,source_path,created_at,event_date,claims(claim_text)')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
@@ -25,21 +30,8 @@ export default async function ContextPage() {
     .from('memory_entities')
     .select('memory_id, entity_id')
 
-  // Fetch events and reminders, ignore if tables don't exist yet
-  let events: Record<string, unknown>[] = []
-  let reminders: Record<string, unknown>[] = []
-  
-  try {
-    const { data: evData } = await supabase.from('events').select('*').eq('user_id', user.id)
-    if (evData) events = evData
-
-    const { data: remData } = await supabase.from('reminders').select('*').eq('user_id', user.id)
-    if (remData) reminders = remData
-  } catch {}
-
-  if (error) {
-    console.error('Failed to fetch memories:', error)
-  }
+  const {data:events,error:eventError} = await supabase.from('events').select('id,title,event_type,event_date,due_date,memory_id').eq('user_id',user.id)
+  if (error || eventError) throw new Error('Could not load the memory library.')
 
   const safeMemories = memories || []
   const safeEntities = entities || []
@@ -102,20 +94,19 @@ export default async function ContextPage() {
   })
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-24 pt-8 px-4">
-      <div className="space-y-4">
+    <div className="workspace-page library-page">
+      <header className="page-heading"><div>
         <h1 className="text-4xl font-semibold tracking-tight">Memories</h1>
         <p className="text-xl text-muted-foreground font-light">
-          Explore everything TRACE knows.
+          Search your saved sources by title, detail, or connected entity.
         </p>
-      </div>
+      </div></header>
 
-      <MemoryExplorer 
+      <MemoryExplorer initialType={type} key={(selected || 'all') + (type || '')} initialMemory={selected}
         memories={safeMemories} 
         entityMap={memoryIdToEntities}
         relatedMemoriesMap={memoryIdToRelatedMemories}
-        events={events}
-        reminders={reminders}
+        events={events || []}
       />
     </div>
   )

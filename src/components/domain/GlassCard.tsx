@@ -8,8 +8,7 @@ const GlassCard = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border border-white/10 bg-white/5 backdrop-blur-md shadow-sm transition-all duration-200",
-      "dark:border-white/10 dark:bg-black/20",
+      "rounded-xl border border-border bg-card text-card-foreground",
       className
     )}
     {...props}

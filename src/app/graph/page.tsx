@@ -1,9 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { GraphVisualizer } from '@/components/domain/GraphVisualizer'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { MemoryConnections } from '@/components/domain/MemoryConnections'
 
 export default async function GraphPage() {
   const supabase = await createClient()
@@ -18,6 +16,7 @@ export default async function GraphPage() {
     .from('memories')
     .select('id, title, category')
     .eq('user_id', user.id)
+    .order('created_at',{ascending:false})
 
   // Fetch all entities
   const { data: entities } = await supabase
@@ -43,22 +42,15 @@ export default async function GraphPage() {
     if (me) memoryEntities = me
   }
 
+  const linkedIds = new Set(memoryEntities.map(edge => edge.entity_id))
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-12 h-[calc(100vh-4rem)] flex flex-col">
-      <div className="flex items-center gap-4">
-        <Link href="/dashboard" className="text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Interactive Knowledge Graph</h1>
-          <p className="text-muted-foreground text-sm">Visualize the connections between your memories and entities.</p>
-        </div>
-      </div>
-      
-      <div className="flex-1 w-full min-h-0 bg-background rounded-xl border border-border">
-        <GraphVisualizer 
+    <div className="workspace-page graph-page">
+      <header className="page-heading"><div><h1>Knowledge graph</h1>
+        <p>Follow a source to its people, places and related memories.</p></div></header>
+      <div className="graph-frame">
+        <MemoryConnections
           memories={memories || []} 
-          entities={entities || []} 
+          entities={(entities || []).filter(entity => linkedIds.has(entity.id))}
           memoryEntities={memoryEntities} 
         />
       </div>

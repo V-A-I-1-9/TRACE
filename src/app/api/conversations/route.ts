@@ -32,8 +32,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { query } = await request.json()
-    const trimmed = query?.trim() || ''
+    const body = await request.json().catch(()=>null)
+    if (!body || typeof body !== 'object' || Array.isArray(body) || (body.query !== undefined && typeof body.query !== 'string'))
+      return NextResponse.json({error:'Enter a valid question.'},{status:400})
+    const trimmed = body.query?.trim() || ''
+    if (trimmed.length > 1500) return NextResponse.json({error:'Keep the question under 1,501 characters.'},{status:400})
     const title = trimmed ? (trimmed.length > 30 ? trimmed.slice(0, 30) + '...' : trimmed) : 'New Conversation'
 
     const { data, error } = await supabase

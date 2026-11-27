@@ -38,6 +38,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/auth') &&
     request.nextUrl.pathname !== '/'
   ) {
+    if (request.nextUrl.pathname.startsWith('/api/')) return NextResponse.json({error:'Sign in to continue.'},{status:401})
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

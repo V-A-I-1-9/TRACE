@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -11,12 +11,14 @@ export async function POST(
 
   const resolvedParams = await params
   
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('reminders')
     .update({ status: 'COMPLETED' })
     .eq('id', resolvedParams.id)
     .eq('user_id', user.id)
+    .select('id').maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) return NextResponse.json({error:'Reminder unavailable.'},{status:404})
   return NextResponse.json({ success: true })
 }
