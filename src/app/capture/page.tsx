@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { responseLines } from '@/lib/stream'
 import { CameraCapture } from '@/components/domain/CameraCapture'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ const STAGES = [
 ]
 
 export default function CapturePage() {
+  const router = useRouter()
   const [state, setState] = useState<CaptureState>('idle')
   const [captureMode, setCaptureMode] = useState<CaptureMode>('IMAGE')
   const [processingStage, setProcessingStage] = useState<ProcessingStage | null>(null)
@@ -196,6 +198,7 @@ export default function CapturePage() {
           complete = true
           setResult(data)
           setState('success')
+          router.refresh()
         }
       }
       if (!complete) throw new Error('Capture was interrupted. Retry the same source.')

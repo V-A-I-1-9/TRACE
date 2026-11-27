@@ -15,28 +15,21 @@ export default async function ContextPage({searchParams}:{searchParams:Promise<{
 
   after(async () => { await cleanDeletedSources(supabase, user.id) })
 
-  const { data: memories, error } = await supabase
-    .from('memories')
-    .select('id,title,summary,category,source_type,source_path,created_at,event_date,claims(claim_text)')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-
-  const { data: entities } = await supabase
-    .from('entities')
-    .select('id, name, type')
-    .eq('user_id', user.id)
-
-  const { data: me } = await supabase
-    .from('memory_entities')
-    .select('memory_id, entity_id')
-
-  const {data:events,error:eventError} = await supabase.from('events').select('id,title,event_type,event_date,due_date,memory_id').eq('user_id',user.id)
-  if (error || eventError) throw new Error('Could not load the memory library.')
-
-  const safeMemories = memories || []
-  const safeEntities = entities || []
-  const safeMe = me || []
-
+  const [memoryRows, entityRows, links, eventRows] = await Promise.all([
+    supabase.from('memories')
+      .select('id,title,summary,category,source_type,source_path,created_at,event_date,claims(claim_text)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false }),
+    supabase.from('entities').select('id,name,type').eq('user_id', user.id),
+    supabase.from('memory_entities').select('memory_id,entity_id'),
+    supabase.from('events').select('id,title,event_type,event_date,due_date,memory_id').eq('user_id', user.id),
+  ])
+  if (memoryRows.error || entityRows.error || links.error || eventRows.error) {
+    throw new Error('Could not load the memory library.')
+  }
+  const safeMemories = memoryRows.data
+  const safeEntities = entityRows.data
+  const safeMe = links.data
   // Deduplicate entities (JS-level for Phase 3B)
   const entityIdToNormalizedName = new Map<string, string>()
   safeEntities.forEach(e => {
@@ -70,14 +63,7 @@ export default async function ContextPage({searchParams}:{searchParams:Promise<{
   // Pre-calculate related memories for each memory
   const memoryIdToRelatedMemories: Record<string, { id: string, title: string }[]> = {}
   safeMemories.forEach(memory => {
-    const connectedEntityNames = new Set<string>()
-    safeMe.forEach(relation => {
-      if (relation.memory_id === memory.id) {
-        const normName = entityIdToNormalizedName.get(relation.entity_id)
-        if (normName) connectedEntityNames.add(normName)
-      }
-    })
-
+    const connectedEntityNames = memoryIdToEntities[memory.id] ?? []
     const relatedMemoryIds = new Set<string>()
     connectedEntityNames.forEach(normName => {
       const memIds = entityToMemories.get(normName)
@@ -106,7 +92,7 @@ export default async function ContextPage({searchParams}:{searchParams:Promise<{
         memories={safeMemories} 
         entityMap={memoryIdToEntities}
         relatedMemoriesMap={memoryIdToRelatedMemories}
-        events={events || []}
+        events={eventRows.data}
       />
     </div>
   )

@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  experimental: { staleTimes: { dynamic: 120 } },
   serverExternalPackages: ['tesseract.js', 'sharp', 'unpdf'],
   outputFileTracingIncludes: {
     '/api/capture/*': [

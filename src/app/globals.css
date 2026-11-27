@@ -1184,3 +1184,25 @@
 }
 .notification-trigger:hover { background: #32483b; }
 .workspace-rail[data-collapsed='true'] .notification-trigger { justify-content: center; }
+
+.route-placeholder {
+  color: var(--muted);
+  animation: trace-reveal 1.6s ease-in-out infinite alternate;
+}
+.placeholder-heading, .placeholder-row :is(i, b) {
+  display: block;
+  background: currentColor;
+  border-radius: 5px;
+}
+.placeholder-heading { width: min(45%, 220px); height: 34px; margin: 10px 0 30px; }
+.placeholder-list { border: 1px solid var(--border); border-radius: 14px; padding: 0 18px; }
+.placeholder-row { display: flex; gap: 14px; align-items: center; padding: 20px 0; }
+.placeholder-row + .placeholder-row { border-top: 1px solid var(--border); }
+.placeholder-row i { width: 36px; height: 36px; flex: none; }
+.placeholder-row div { width: min(70%, 320px); }
+.placeholder-row b { height: 10px; }
+.placeholder-row b + b { margin-top: 8px; width: 58%; }
+@keyframes trace-reveal { from { opacity: .6; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .route-placeholder { animation: none; }
+}

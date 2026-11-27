@@ -1,11 +1,16 @@
-import { Loader2 } from 'lucide-react'
-
 export default function Loading() {
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="flex flex-col items-center gap-4">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <p className="text-sm text-muted-foreground tracking-wide">Loading...</p>
+    <div role="status" className="workspace-page route-loading">
+      <span className="sr-only">Loading page</span>
+      <div aria-hidden="true" className="route-placeholder">
+        <div className="placeholder-heading" />
+        <div className="placeholder-list">
+          {[0, 1, 2].map(row => (
+            <div className="placeholder-row" key={row}>
+              <i /><div><b /><b /></div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

@@ -15,7 +15,17 @@ export function AppSidebar() {
   const [email, setEmail] = useState('')
   const supabase = createClient()
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => setEmail(session?.user.email ?? ''))
+    let owner: string | null | undefined
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextOwner = session?.user.id ?? null
+      if (owner && nextOwner !== owner) {
+        window.location.replace(nextOwner ? '/dashboard' : '/login')
+      } else if (event === 'SIGNED_OUT' && !['/login', '/signup'].includes(window.location.pathname)) {
+        window.location.replace('/login')
+      }
+      owner = nextOwner
+      setEmail(session?.user.email ?? '')
+    })
     return () => data.subscription.unsubscribe()
   }, [supabase.auth])
 
