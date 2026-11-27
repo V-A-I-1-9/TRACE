@@ -1,5 +1,6 @@
 'use client'
 
+import { NotificationBell } from './NotificationBell'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Fingerprint } from 'lucide-react'
@@ -16,7 +17,7 @@ export function MobileNav() {
           <Fingerprint aria-hidden="true" />
           TRACE
         </Link>
-        <SignOutButton />
+        <div className="flex items-center gap-2"><NotificationBell /><SignOutButton /></div>
       </header>
       <nav aria-label="Workspace" className="mobile-dock">
         {navigation.map(({ href, name, short, icon: Icon }) => (

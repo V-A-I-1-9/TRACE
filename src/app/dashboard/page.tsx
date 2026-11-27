@@ -1,4 +1,4 @@
-import { upcomingSchedule } from '@/lib/schedule'
+import { upcomingSchedule, expiryLabel } from '@/lib/schedule'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { ArrowUpRight, CalendarDays, ChevronRight, Plus, Waypoints } from 'lucide-react'
@@ -24,7 +24,7 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false }),
     supabase.from('entities').select('name,type,memory_entities!inner(memory_id)').eq('user_id', user.id),
-    upcomingSchedule(supabase, user.id, 5).catch(() => null),
+    upcomingSchedule(supabase, 5).catch(() => null),
   ])
   const safeMemories = memories.data ?? []
   const safeEntities = entities.data ?? []
@@ -165,12 +165,26 @@ export default async function DashboardPage() {
                 Could not load upcoming items.
               </p>
             )}
-            {schedule?.length === 0 && <p className="panel-note">No upcoming reminders.</p>}
+            {schedule?.length === 0 && <p className="panel-note">No upcoming events or expiries.</p>}
             {schedule?.map((item) => (
-              <div className="agenda-row" key={item.id + item.date}>
-                <time dateTime={item.date}>{dateFormat.format(new Date(item.date))}</time>
-                <strong>{item.title}</strong>
-              </div>
+              <Link
+                className="agenda-row block hover:bg-secondary/50"
+                key={item.id + item.date + item.kind}
+                href={`/memories?memory=${item.memory_id}#memory-${item.memory_id}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <time dateTime={item.date}>{dateFormat.format(new Date(item.date))}</time>
+                  {item.kind === 'COUPON_EXPIRY' && (
+                    <span className="rounded-md bg-amber-100 px-2 py-1 text-xs text-amber-900">
+                      {expiryLabel(item.date)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <strong>{item.title}</strong>
+                  <ChevronRight size={15} aria-hidden="true" />
+                </div>
+              </Link>
             ))}
           </section>
           <section className="desk-panel">

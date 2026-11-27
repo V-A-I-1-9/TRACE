@@ -1,5 +1,6 @@
 'use client'
 
+import { NotificationBell } from './NotificationBell'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Fingerprint, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -48,6 +49,7 @@ export function AppSidebar() {
             <span>{name}</span>
           </Link>
         ))}
+        <NotificationBell showLabel />
       </nav>
       <div className="rail-account">
         <span aria-hidden="true" className="account-initial">

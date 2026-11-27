@@ -5,7 +5,7 @@ import { extractMemory, generateEmbedding, providerMessage } from './ai/gemini'
 import { captureText } from './ai/local-capture'
 import { readScreenshot } from './ai/ocr'
 
-import {readSource, type CaptureKind} from './source-input'
+import { readSource, type CaptureKind } from './source-input'
 
 async function understand(source: Awaited<ReturnType<typeof readSource>>, kind: CaptureKind) {
   let transcript = source.mime.startsWith('text/') ? source.bytes.toString('utf8') : ''
@@ -18,16 +18,20 @@ async function understand(source: Awaited<ReturnType<typeof readSource>>, kind: 
   }
   if (source.mime === 'application/pdf') {
     try {
-      const {getDocumentProxy, extractText} = await import('unpdf')
+      const { getDocumentProxy, extractText } = await import('unpdf')
       const document = await getDocumentProxy(new Uint8Array(source.bytes))
       try {
         if (document.numPages <= 24) {
-          const {text} = await extractText(document, {mergePages: false})
+          const { text } = await extractText(document, { mergePages: false })
           const contents = text.join('\n').trim()
           if (contents.length <= 16000) transcript = contents
         }
-      } finally { await document.loadingTask.destroy() }
-    } catch { /* Scans and unsupported PDFs use the multimodal extractor. */ }
+      } finally {
+        await document.loadingTask.destroy()
+      }
+    } catch {
+      /* Scans and unsupported PDFs use the multimodal extractor. */
+    }
   }
   if (source.mime.startsWith('text/') && transcript.length > 16000)
     throw new Error('Text documents support up to 16,000 characters. Split this document into smaller notes.')
@@ -51,9 +55,10 @@ async function understand(source: Awaited<ReturnType<typeof readSource>>, kind: 
     }
   }
   try {
-    const part = source.mime.startsWith('text/') || (source.mime === 'application/pdf' && transcript.length > 0)
-      ? { text: transcript.slice(0, 16000) }
-      : { inlineData: { data: source.bytes.toString('base64'), mimeType: source.mime } }
+    const part =
+      source.mime.startsWith('text/') || (source.mime === 'application/pdf' && transcript.length > 0)
+        ? { text: transcript.slice(0, 16000) }
+        : { inlineData: { data: source.bytes.toString('base64'), mimeType: source.mime } }
     return { capture: await extractMemory(part, source.name), notice: '' }
   } catch (error) {
     if (local)
@@ -110,12 +115,31 @@ export async function captureRequest(request: Request, kind: CaptureKind) {
             return
           }
           send({ stage: 'understanding' })
-          const { capture, notice } = await understand(source, kind)
-          send({ stage: 'saving' })
+          const started = performance.now()
           const path = `${owner}/${randomUUID()}/original.${ext}`
-          const upload = await bucket.upload(path, bytes, { contentType: mime })
-          if (upload.error) throw new Error('Could not upload the original. Retry the capture.')
-          const saved = await db.rpc('trace_capture', {
+          // The original bytes never depend on extraction. Commit only when both operations succeeded.
+          const uploadOriginal = async () => {
+            const result = await bucket.upload(path, bytes, { contentType: mime })
+            if (result.error) throw new Error('Could not upload the original. Retry the capture.')
+            return performance.now() - started
+          }
+          const [extraction, upload] = await Promise.allSettled([
+            understand(source, kind).then((result) => {
+              send({ stage: 'saving' })
+              return { ...result, elapsed: performance.now() - started }
+            }),
+            uploadOriginal(),
+          ])
+          if (extraction.status === 'rejected' || upload.status === 'rejected') {
+            // No database commit was attempted. It is safe to discard this request's unique object.
+            await bucket.remove([path])
+            throw extraction.status === 'rejected'
+              ? extraction.reason
+              : new Error('Could not upload the original. Retry the capture.')
+          }
+          const { capture, notice } = extraction.value
+          const committing = performance.now()
+          const saved = await db.rpc('trace_capture_receipt', {
             p_source_type: kind,
             p_source_path: path,
             p_hash: hash,
@@ -126,7 +150,7 @@ export async function captureRequest(request: Request, kind: CaptureKind) {
             if (/^[0-9A-Z]{5}$/.test(saved.error.code || '')) await bucket.remove([path])
             throw new Error('Could not confirm the save. Retry with the same file.')
           }
-          const stored = await findDuplicate()
+          const stored = saved
           if (!stored.data) throw new Error('Could not verify the saved memory. Retry with the same file.')
           if (stored.data.source_path !== path) {
             await bucket.remove([path])
@@ -140,6 +164,12 @@ export async function captureRequest(request: Request, kind: CaptureKind) {
             })
             return
           }
+          console.info('[TRACE capture]', {
+            kind,
+            extraction_ms: Math.round(extraction.value.elapsed),
+            upload_ms: Math.round(upload.value),
+            commit_ms: Math.round(performance.now() - committing),
+          })
           const semanticMode = process.env.TRACE_SEMANTIC_SEARCH || 'auto'
           if (semanticMode === 'on' || (semanticMode === 'auto' && !notice)) {
             after(async () => {
@@ -152,7 +182,7 @@ export async function captureRequest(request: Request, kind: CaptureKind) {
                 await db
                   .from('memories')
                   .update({ embedding: JSON.stringify(vector) })
-                  .eq('id', saved.data)
+                  .eq('id', stored.data.id)
                   .eq('user_id', owner)
               } catch {
                 /* Full-text search remains available. */

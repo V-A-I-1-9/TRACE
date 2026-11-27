@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   const calendar = temporal.test(query)
   const [lexical,schedule] = await Promise.all([
     retrieve(null),
-    calendar ? upcomingSchedule(db,user.id,10,memory_id).catch(()=>null) : [],
+    calendar ? upcomingSchedule(db,10,memory_id).catch(()=>null) : [],
   ])
   if (lexical.error || !schedule)
     return Response.json({ error: 'Could not search your memories.' }, { status: 503 })

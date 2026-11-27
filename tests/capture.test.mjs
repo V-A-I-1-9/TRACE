@@ -52,3 +52,11 @@ test('upcoming includes today in India and rolls over at local midnight', () => 
   assert.equal(startOfIndiaDay(new Date('2026-11-26T18:29:59Z')), '2026-11-25T18:30:00.000Z')
   assert.equal(startOfIndiaDay(new Date('2026-11-26T18:30:00Z')), '2026-11-26T18:30:00.000Z')
 })
+
+test('coupon expiry urgency follows Indian calendar days', async () => {
+  const { expiryLabel } = await import('../src/lib/schedule.ts')
+  const now = new Date('2027-03-06T18:30:00Z')
+  assert.equal(expiryLabel('2027-03-07', now), 'Expires today')
+  assert.equal(expiryLabel('2027-03-14', now), 'Expiring soon')
+  assert.equal(expiryLabel('2027-03-15', now), 'Coupon expiry')
+})

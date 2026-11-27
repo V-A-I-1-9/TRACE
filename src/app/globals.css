@@ -1165,3 +1165,22 @@
   background: var(--muted);
   border: 1px solid var(--foreground);
 }
+
+.notification-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+}
+.rail-nav .notification-trigger {
+  justify-content: flex-start;
+  gap: 13px;
+  padding: 12px 14px;
+  color: #d4ded3;
+  font-size: .91rem;
+  font-weight: 500;
+}
+.notification-trigger:hover { background: #32483b; }
+.workspace-rail[data-collapsed='true'] .notification-trigger { justify-content: center; }

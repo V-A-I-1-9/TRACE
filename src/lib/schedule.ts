@@ -10,62 +10,50 @@ export function startOfIndiaDay(now = new Date()) {
   return new Date(date + 'T00:00:00+05:30').toISOString()
 }
 
-type ScheduleItem = { id: string; title: string; date: string; kind: string }
+type ScheduleItem = { id: string; memory_id: string; title: string; date: string; kind: string }
 
-export async function upcomingSchedule(
-  db: SupabaseClient,
-  userId: string,
-  limit: number,
-  memoryId?: string | null,
-) {
-  const start = startOfIndiaDay()
-  function eventQuery(column: 'event_date' | 'due_date') {
-    let rows = db
-      .from('events')
-      .select('id,title,event_type,event_date,due_date')
-      .eq('user_id', userId)
-      .gte(column, start)
-      .order(column)
-      .limit(limit)
-    if (memoryId) rows = rows.eq('memory_id', memoryId)
-    return rows
-  }
-  let pending = db
-    .from('reminders')
-    .select('id,title,event_id,reminder_date,event:events!inner(memory_id)')
-    .eq('user_id', userId)
-    .eq('status', 'PENDING')
-    .gte('reminder_date', start)
-    .order('reminder_date')
-    .limit(limit)
-  if (memoryId) pending = pending.eq('event.memory_id', memoryId)
-  const [starts, deadlines, reminders] = await Promise.all([
-    eventQuery('event_date'),
-    eventQuery('due_date'),
-    pending,
-  ])
-  if (starts.error || deadlines.error || reminders.error)
-    throw new Error('Could not load the upcoming schedule.')
-  const items: ScheduleItem[] = []
-  for (const event of starts.data)
-    items.push({ id: event.id, title: event.title, date: event.event_date, kind: event.event_type })
-  for (const event of deadlines.data)
-    items.push({ id: event.id, title: event.title, date: event.due_date, kind: 'DEADLINE' })
-  for (const reminder of reminders.data)
-    items.push({
-      id: reminder.event_id,
-      title: reminder.title,
-      date: reminder.reminder_date,
-      kind: 'REMINDER',
-    })
-  items.sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
-  const seen = new Set<string>()
-  return items
-    .filter((item) => {
-      const key = item.id + '/' + Date.parse(item.date)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .slice(0, limit)
+export function expiryLabel(date: string, now = new Date()) {
+  const days = (Date.parse(startOfIndiaDay(new Date(date))) - Date.parse(startOfIndiaDay(now))) / 86_400_000
+  if (days === 0) return 'Expires today'
+  return days > 0 && days <= 7 ? 'Expiring soon' : 'Coupon expiry'
+}
+
+export async function upcomingSchedule(db: SupabaseClient, limit: number, memoryId?: string | null) {
+  const { data, error } = await db.rpc('trace_upcoming', {
+    p_start: startOfIndiaDay(),
+    p_count: limit,
+    p_memory: memoryId ?? null,
+  })
+  if (error) throw new Error('Could not load the upcoming schedule.')
+  return data as ScheduleItem[]
+}
+
+type Reminder = { event_id: string; reminder_date: string; status: string }
+
+export function notificationFeed(items: ScheduleItem[], reminders: Reminder[], now = new Date()) {
+  const today = Date.parse(startOfIndiaDay(now))
+  const day = 86_400_000
+  return items.flatMap(item => {
+    const target = Date.parse(startOfIndiaDay(new Date(item.date)))
+    if (target < today) return []
+    const matches = reminders.filter(row => row.event_id === item.id)
+    const pending = matches.filter(row => row.status === 'PENDING')
+    if (matches.length && !pending.length) return []
+    // The capture pipeline schedules its reminder against the primary event date.
+    const primary = !items.some(other => other.id === item.id && other.kind !== 'DEADLINE' && item.kind === 'DEADLINE')
+    const leadDays = item.kind === 'COUPON_EXPIRY' ? 7 : 2
+    const saved = primary ? pending.map(row => Date.parse(startOfIndiaDay(new Date(row.reminder_date)))) : []
+    const remindAt = Math.min(target - leadDays * day, ...saved)
+    return [{ ...item, remindAt: new Date(remindAt).toISOString(), due: remindAt <= today }]
+  }).sort((a, b) => Number(b.due) - Number(a.due) ||
+    Date.parse(a.due ? a.date : a.remindAt) - Date.parse(b.due ? b.date : b.remindAt))
+}
+
+export async function loadNotifications(db: SupabaseClient) {
+  const items = await upcomingSchedule(db, 100)
+  const ids = [...new Set(items.filter(item => item.id !== item.memory_id).map(item => item.id))]
+  if (!ids.length) return notificationFeed(items, [])
+  const { data, error } = await db.from('reminders').select('event_id, reminder_date, status').in('event_id', ids)
+  if (error) throw new Error('Could not load reminders.')
+  return notificationFeed(items, data)
 }
