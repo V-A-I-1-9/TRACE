@@ -1,17 +1,13 @@
+import { Fingerprint } from 'lucide-react'
+
 export default function Loading() {
   return (
-    <div role="status" className="workspace-page route-loading">
-      <span className="sr-only">Loading page</span>
-      <div aria-hidden="true" className="route-placeholder">
-        <div className="placeholder-heading" />
-        <div className="placeholder-list">
-          {[0, 1, 2].map(row => (
-            <div className="placeholder-row" key={row}>
-              <i /><div><b /><b /></div>
-            </div>
-          ))}
-        </div>
+    <div className="trace-loader" role="status">
+      <div className="trace-reader" aria-hidden="true">
+        <Fingerprint size={54} strokeWidth={1.35} />
+        <div className="trace-scan" />
       </div>
+      <p>Loading workspace…</p>
     </div>
   )
 }
